@@ -127,11 +127,6 @@ def incrementLockUsage(lockId) {
   state."lock${lockId}".usage = state."lock${lockId}".usage + 1
 }
 
-def resetLockUsage(lockId) {
-  state."lock${lockId}".usage = 0
-  lockReset(lockId)
-}
-
 def lockReset(lockId) {
   state."lock${lockId}".enabled = true
   state."lock${lockId}".disabledReason = ''
@@ -235,16 +230,20 @@ def lockInfoPageImage(lock) {
 
 def lockPage(params) {
   dynamicPage(name:"lockPage", title:"Lock Settings") {
+    debugger('current params: ' + params)
     def lock = getLock(params)
     def lockApp = getLockApp(lock.id)
     log.debug lockApp
     def slotData = lockApp.slotData(userSlot)
 
     def usage = state."lock${lock.id}".usage
+
+    debugger('found lock id?: ' + lock?.id)
+
     if (!state."lock${lock.id}".enabled) {
       section {
         paragraph "WARNING:\n\nThis user has been disabled.\nReason: ${state."lock${lock.id}".disabledReason}", image: 'https://dl.dropboxusercontent.com/u/54190708/LockManager/ban.png'
-        href(name: 'reEnableUserLockPage', title: 'Reset User', page: 'reEnableUserLockPage', params: [id: lock.id], description: 'Tap to reset')
+        href(name: 'toReEnableUserLockPage', page: 'reEnableUserLockPage', title: 'Reset User', description: 'Retry setting this user.',  params: [id: lock.id], image: 'https://dl.dropboxusercontent.com/u/54190708/LockManager/refresh.png' )
       }
     }
     section("${deviceLabel(lock)} settings for ${app.label}") {
@@ -291,6 +290,7 @@ def reEnableUserLockPage(params) {
   // do reset
   def lock = getLock(params)
   lockReset(lock.id)
+
   dynamicPage(name:'reEnableUserLockPage', title:'User re-enabled') {
     section {
       paragraph 'Lock has been reset.'
@@ -304,7 +304,10 @@ def reEnableUserLockPage(params) {
 def lockResetPage(params) {
   // do reset
   def lock = getLock(params)
-  resetLockUsage(lock.id)
+
+  state."lock${lock.id}".usage = 0
+  lockReset(lock.id)
+
   dynamicPage(name:'lockResetPage', title:'Lock reset') {
     section {
       paragraph 'Lock has been reset.'
@@ -473,7 +476,9 @@ def notificationPageDescription() {
   if (settings.recipients) {
     parts << 'Sent to Address Book'
   }
-  msg += fancyString(parts)
+  if (parts.size()) {
+    msg += fancyString(parts)
+  }
   parts = []
 
   if (settings.notifyAccess) {
@@ -504,10 +509,6 @@ def notificationPageDescription() {
   return msg
 }
 
-def fancyDeviceString(devices = []) {
-  fancyString(devices.collect { deviceLabel(it) })
-}
-
 def deviceLabel(device) {
   return device.label ?: device.name
 }
@@ -523,8 +524,9 @@ def fancyString(listOfStrings) {
       label
     }.join(", ")
   }
-
-  return fancify(listOfStrings)
+  if (listOfStrings) {
+    return fancify(listOfStrings)
+  }
 }
 
 
@@ -786,17 +788,24 @@ def getLockApp(lockId) {
 def getLock(params) {
   def id = ''
   // Assign params to id.  Sometimes parameters are double nested.
+  debugger('params: ' + params)
+  debugger('last: ' + state.lastLock)
   if (params?.id) {
     id = params.id
   } else if (params?.params){
     id = params.params.id
-  } else if (state.lastLock) {
-    id = state.lastLock
   }
-  state.lastLock = id
-  def lockApp = getLockApp(state.lastLock)
+  def lockApp = getLockApp(id)
+  if (!lockApp) {
+    lockApp = getLockApp(state.lastLock)
+  }
 
-  return lockApp.lock
+  if (lockApp) {
+    state.lastLock = lockApp.lock.id
+    return lockApp.lock
+  } else {
+    return false
+  }
 }
 
 def userNotificationSettings() {
@@ -891,6 +900,11 @@ def sendMessageViaUser(msg) {
 def disableLock(lockID) {
   state."lock${lockID}".enabled = false
   state."lock${lockID}".disabledReason = 'Controller failed to set user code.'
+}
+
+def enableLock(lockID) {
+  state."lock${lockID}".enabled = true
+  state."lock${lockID}".disabledReason = null
 }
 
 def getLockUserInfo(lock) {
